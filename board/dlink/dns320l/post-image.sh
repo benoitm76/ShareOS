@@ -38,8 +38,18 @@ KVER=$(sed -n 's/^BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="\(.*\)"/\1/p' "$BR2_CON
 "$BOARD_DIR/mk-initramfs.sh" "$TARGET_DIR" "$B" "$HOST_DIR" "$BOARD_DIR"
 [ -s "$B/rootfs.squashfs" ] || { echo "post-image: rootfs.squashfs missing"; exit 1; }
 
-"$MKIMAGE" -A arm -O linux -T ramdisk -C none -a 0x00800000 -e 0x00800000 \
+# Load address of the initramfs: the stock U-Boot reads the ramdisk partition to
+# 0xf00000 and copies it here before it starts the kernel. 0x800000 (what
+# Alt-F uses) is inside memory the ShareOS kernel holds on the DNS-325: the
+# kernel prints "INITRD: ... overlaps in-use memory region - disabling initrd",
+# finds no /init and panics in a reboot loop. 0x1000000 booted from flash on a
+# DNS-325 rev A1.
+INITRD_ADDR=0x01000000
+
+"$MKIMAGE" -A arm -O linux -T ramdisk -C none -a $INITRD_ADDR -e $INITRD_ADDR \
 	-n "ShareOS-${VERSION}, initrd" -d "$B/initramfs.cpio.xz" "$B/urootfs"
+"$MKIMAGE" -l "$B/urootfs" | grep -q "Load Address: 01000000" \
+	|| { echo "post-image: initramfs load address is not $INITRD_ADDR" >&2; exit 1; }
 
 check_size() {
 	local f=$1 max=$2 sz
